@@ -11,7 +11,9 @@ In addition to OBS Studio's Qt requirements, this plugin requires QtQuick (duh) 
 
 In [obs source root]/plugins edit the file CMakeLists.txt and near the bottom add this line:
 
-```add_subdirectory(obs-qmlview)```
+```
+add_subdirectory(obs-qmlview)
+```
 
 And .. yeah, put this checked-out repository in there too.
 
