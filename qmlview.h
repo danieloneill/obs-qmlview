@@ -16,6 +16,9 @@ class OBSQuickview : public QObject
 Q_OBJECT
     QQuickWidget      *m_quick;
 
+    QUrl    m_source;
+
+    QSize   m_size;
     QMutex  m_mutex;
     QImage  m_canvas;
     bool    m_enabled;
@@ -38,11 +41,12 @@ public:
     gs_texture  *texture;
     bool    m_persistent;
 
-    void obsshow() { m_enabled = true; m_view->setUpdatesEnabled(true); }
+    void obsshow();
     void obshide() { m_enabled = false; m_view->setUpdatesEnabled(false); }
     void obsdraw();
     void renderFrame(gs_effect_t *effect);
 
+    void makeWidget();
     void makeTexture();
     void loadUrl(QUrl url);
     void resize( quint32 w, quint32 h );
@@ -52,13 +56,13 @@ public:
     quint32 height() { return m_quick->height(); }
 
 signals:
-    void wantLoad(QUrl url);
+    void wantLoad();
     void wantResize(quint32 w, quint32 h);
     void wantSnap();
 
 private slots:
     void doSnap();
-    void doLoad(QUrl url);
+    void doLoad();
     void doResize(quint32 w, quint32 h);
 
     void qmlStatus(QQuickWidget::Status status);

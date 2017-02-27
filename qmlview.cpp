@@ -25,33 +25,19 @@ OBSQuickview::OBSQuickview(QObject *parent)
         QtWebEngine::initialize();
     }
 
-    connect( this, SIGNAL(wantLoad(QUrl)), this, SLOT(doLoad(QUrl)), Qt::QueuedConnection );
+    connect( this, SIGNAL(wantLoad()), this, SLOT(doLoad()), Qt::QueuedConnection );
     connect( this, SIGNAL(wantResize(quint32,quint32)), this, SLOT(doResize(quint32,quint32)), Qt::QueuedConnection );
     connect( this, SIGNAL(wantSnap()), this, SLOT(doSnap()), Qt::QueuedConnection );
 
     obs_enter_graphics();
-    m_quick = new QQuickWidget();
-/*
-    QSurfaceFormat format;
-    format.setRenderableType(QSurfaceFormat::OpenGL);
-    format.setProfile(QSurfaceFormat::CompatibilityProfile);
-    format.setSwapBehavior(QSurfaceFormat::TripleBuffer);
-    m_quick->setFormat(format);
-*/
-    connect( m_quick, SIGNAL(statusChanged(QQuickWidget::Status)), this, SLOT(qmlStatus(QQuickWidget::Status)) );
-
     m_scene = new QGraphicsScene();
     //connect( m_scene, SIGNAL(changed(QList<QRectF>)), this, SLOT(doSnap()), Qt::QueuedConnection );
 
     m_view = new QGraphicsView(m_scene);
 
     m_view->setStyleSheet("{ background-color: rgba(0,0,0,0); }");
-    m_scene->addWidget(m_quick);
-    m_quick->setStyleSheet("{ background-color: rgba(0,0,0,0); }");
-    m_quick->setAutoFillBackground(false);
+    makeWidget();
 
-    m_quick->setResizeMode(QQuickWidget::SizeRootObjectToView);
-    m_quick->show();
     obs_leave_graphics();
 }
 
@@ -67,9 +53,9 @@ OBSQuickview::~OBSQuickview()
     m_bits = NULL;
     m_mutex.unlock();
 
-    m_quick->deleteLater();
-    m_view->deleteLater();
-    m_scene->deleteLater();
+    delete m_quick;
+    delete m_view;
+    delete m_scene;
 }
 
 void OBSQuickview::snap()
@@ -89,9 +75,9 @@ void OBSQuickview::doSnap()
         return;
 
     m_mutex.lock();
-    obs_enter_graphics();
+    //obs_enter_graphics();
     m_snapper = m_quick->rootObject()->grabToImage();
-    obs_leave_graphics();
+    //obs_leave_graphics();
     m_mutex.unlock();
 
     if( !m_snapper.isNull() )
@@ -114,30 +100,68 @@ void OBSQuickview::makeTexture()
     //qDebug() << "makeTexture(" << m_web->width() << "x" << m_web->height() << ")";
 }
 
+void OBSQuickview::makeWidget()
+{
+    m_mutex.lock();
+    if( m_quick )
+        m_quick->deleteLater();
+
+    m_quick = new QQuickWidget();
+
+    QSurfaceFormat format;
+    format.setRenderableType(QSurfaceFormat::OpenGL);
+    format.setProfile(QSurfaceFormat::CompatibilityProfile);
+    format.setSwapBehavior(QSurfaceFormat::TripleBuffer);
+    m_quick->setFormat(format);
+
+    connect( m_quick, SIGNAL(statusChanged(QQuickWidget::Status)), this, SLOT(qmlStatus(QQuickWidget::Status)) );
+
+    m_scene->addWidget(m_quick);
+    m_quick->setStyleSheet("{ background-color: rgba(0,0,0,0); }");
+    m_quick->setAutoFillBackground(false);
+    m_quick->setResizeMode(QQuickWidget::SizeRootObjectToView);
+    doResize( m_size.width(), m_size.height() );
+    m_quick->show();
+    m_mutex.unlock();
+}
+
 void OBSQuickview::loadUrl(QUrl url)
 {
     m_ready = false;
-    emit wantLoad(url);
+    m_source = url;
+    emit wantLoad();
 }
 
-void OBSQuickview::doLoad(QUrl url)
+void OBSQuickview::doLoad()
 {
-    qDebug() << "Loading URL: " << url;
-    m_quick->setSource(url);
+    qDebug() << "Loading URL: " << m_source;
+    if( !m_persistent )
+        makeWidget();
+
+    m_quick->setSource(m_source);
 }
 
 void OBSQuickview::resize( quint32 w, quint32 h )
 {
+    m_size = QSize(w, h);
     emit wantResize(w, h);
 }
 
 void OBSQuickview::doResize(quint32 w, quint32 h)
 {
-qDebug() << "Resizing: " << w << "x" << h;
+//qDebug() << "Resizing: " << w << "x" << h;
     m_quick->resize(w, h);
     m_scene->setSceneRect(0, 0, w, h);
     m_view->resize(w, h);
     m_view->ensureVisible(0, 0, w, h, 0, 0);
+}
+
+void OBSQuickview::obsshow()
+{
+    m_enabled = true;
+    m_view->setUpdatesEnabled(true);
+    if(!m_persistent)
+        emit wantLoad();
 }
 
 void OBSQuickview::qmlFrame()
@@ -145,6 +169,7 @@ void OBSQuickview::qmlFrame()
     m_mutex.lock();
     m_canvas = m_snapper.data()->image().convertToFormat(QImage::Format_RGBA8888);
     m_mutex.unlock();
+    m_snapper.data()->deleteLater();
     m_snapper.clear();
     m_updated = true;
 }
@@ -246,6 +271,7 @@ static void quickview_source_update(void *data, obs_data_t *settings)
     if( w > 10 && h > 10 )
         s->resize( w, h );
 
+    s->m_persistent = !unload;
     QString str( QString::fromLocal8Bit(file) );
     QUrl url(str);
     if( url.isValid() && !url.isEmpty() )
@@ -259,7 +285,6 @@ static void quickview_source_update(void *data, obs_data_t *settings)
         else
             s->loadUrl( url );
     }
-    s->m_persistent = !unload;
 }
 
 static void *quickview_source_create(obs_data_t *settings, obs_source_t *source)
@@ -307,12 +332,6 @@ static uint32_t quickview_source_getheight(void *data)
 }
 
 static void quickview_source_render(void *data, gs_effect_t *effect)
-{
-    OBSQuickview *s = (OBSQuickview *)data;
-    s->renderFrame(effect);
-}
-
-static void quickview_source_tick(void *data, gs_effect_t *effect)
 {
     OBSQuickview *s = (OBSQuickview *)data;
     s->renderFrame(effect);
