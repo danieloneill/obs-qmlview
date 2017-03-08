@@ -56,6 +56,8 @@
 #include <QQuickRenderControl>
 #include <QCoreApplication>
 
+#include <QDir>
+
 class RenderControl : public QQuickRenderControl
 {
 public:
@@ -255,9 +257,14 @@ void WindowSingleThreaded::run()
     disconnect(m_qmlComponent, &QQmlComponent::statusChanged, this, &WindowSingleThreaded::run);
 
     if (m_qmlComponent->isError()) {
+        QStringList msgs;
         QList<QQmlError> errorList = m_qmlComponent->errors();
         foreach (const QQmlError &error, errorList)
+        {
             qWarning() << error.url() << error.line() << error;
+            msgs << error.toString();
+        }
+        emit messages(msgs);
         return;
     }
 
@@ -299,6 +306,29 @@ void WindowSingleThreaded::updateSizes()
     m_quickWindow->setGeometry(0, 0, width(), height());
 }
 
+void WindowSingleThreaded::addQmlPath()
+{
+    // FIXME: ... so kludge. wow.
+    QStringList msgs;
+    QDir d = QDir(QCoreApplication::applicationDirPath());
+    QString bitpart = d.dirName();
+
+    QString newPath = QDir::currentPath() + "/../../obs-plugins/" + bitpart + "/obs-qmlview/qml";
+    msgs << "Adding to imports path: " << newPath;
+    m_qmlEngine->addImportPath(newPath);
+    foreach( QString path, m_qmlEngine->importPathList() )
+        msgs << " >>  Import: " << path;
+
+    newPath = QDir::currentPath() + "/../../obs-plugins/" + bitpart + "/obs-qmlview/plugins";
+    msgs << "Adding to plugins path: " << newPath;
+    m_qmlEngine->addPluginPath(newPath);
+    foreach( QString path, m_qmlEngine->pluginPathList() )
+        msgs << " >>  Plugin: " << path;
+
+    m_loadMessages << msgs;
+    //emit messages(msgs);
+}
+
 void WindowSingleThreaded::unload()
 {
     m_quickInitialized = false;
@@ -325,7 +355,10 @@ void WindowSingleThreaded::startQuick(const QUrl &url)
         m_qmlEngine->setIncubationController(m_quickWindow->incubationController());
 
     m_qmlEngine->rootContext()->setContextProperty("engine", this);
+    connect( m_qmlEngine, &QQmlEngine::warnings, this, &WindowSingleThreaded::handleWarnings );
     m_qmlEngine->setBaseUrl(url);
+    addQmlPath();
+
     m_qmlComponent = new QQmlComponent(m_qmlEngine, url);
     if (m_qmlComponent->isLoading())
         connect(m_qmlComponent, &QQmlComponent::statusChanged, this, &WindowSingleThreaded::run);
@@ -348,4 +381,12 @@ void WindowSingleThreaded::handleScreenChange()
 {
     if (m_dpr != devicePixelRatio())
         resizeFbo();
+}
+
+void WindowSingleThreaded::handleWarnings(const QList<QQmlError> &warnings)
+{
+    QStringList msgs;
+    foreach( QQmlError warn, warnings )
+        msgs << warn.toString();
+    emit messages(msgs);
 }

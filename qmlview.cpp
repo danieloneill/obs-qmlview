@@ -11,30 +11,11 @@ static bool m_weinit {false};
 void OBSQuickview::addPluginsPath()
 {
     // FIXME: ... so kludge. wow.
-    QDir d = QDir::current();
+    QDir d = QDir(QCoreApplication::applicationDirPath());
     QString bitpart = d.dirName();
-    QString newPath = QDir::currentPath() + "/../../obs-plugins/" + bitpart + "/obs-qmlview";
-    qDebug() << "Adding to library path: " << newPath;
+    QString newPath = QDir::currentPath() + "/../../obs-plugins/" + bitpart + "/obs-qmlview/plugins";
+    m_messages << "Adding to library path: " << newPath;
     QCoreApplication::addLibraryPath( newPath );
-}
-
-void OBSQuickview::addQmlPath()
-{
-    // FIXME: ... so kludge. wow.
-    QDir d = QDir::current();
-    QString bitpart = d.dirName();
-
-    QString newPath = QDir::currentPath() + "/../../obs-plugins/" + bitpart + "/obs-qmlview/qml";
-    qDebug() << "Adding to imports path: " << newPath;
-    m_quickView->engine()->addImportPath(newPath);
-    foreach( QString path, m_quickView->engine()->importPathList() )
-        qDebug() << " >>  Import: " << path;
-
-    newPath = QDir::currentPath() + "/../../obs-plugins/" + bitpart + "/obs-qmlview/plugins";
-    qDebug() << "Adding to plugins path: " << newPath;
-    m_quickView->engine()->addPluginPath(newPath);
-    foreach( QString path, m_quickView->engine()->pluginPathList() )
-        qDebug() << " >>  Plugin: " << path;
 }
 
 OBSQuickview::OBSQuickview(QObject *parent)
@@ -59,6 +40,7 @@ OBSQuickview::OBSQuickview(QObject *parent)
     connect( this, SIGNAL(wantSnap()), this, SLOT(doSnap()), Qt::QueuedConnection );
 
     m_quickView = new WindowSingleThreaded();
+    m_quickView->addMessages(m_messages);
     connect( m_quickView, &WindowSingleThreaded::updated, this, &OBSQuickview::qmlFrame );
 }
 

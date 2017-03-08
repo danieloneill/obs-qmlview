@@ -19,6 +19,7 @@ Q_OBJECT
     WindowSingleThreaded    *m_quickView;
 
     QUrl    m_source;
+    QStringList m_messages;
 
     QSize   m_size;
     QMutex  m_mutex;
@@ -34,7 +35,6 @@ Q_OBJECT
 
 private:
     void addPluginsPath();
-    void addQmlPath();
 
 public:
     OBSQuickview(QObject *parent=NULL);

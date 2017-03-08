@@ -54,12 +54,15 @@ QT_FORWARD_DECLARE_CLASS(QOffscreenSurface)
 QT_FORWARD_DECLARE_CLASS(QQuickRenderControl)
 QT_FORWARD_DECLARE_CLASS(QQuickWindow)
 QT_FORWARD_DECLARE_CLASS(QQmlEngine)
+QT_FORWARD_DECLARE_CLASS(QQmlError)
 QT_FORWARD_DECLARE_CLASS(QQmlComponent)
 QT_FORWARD_DECLARE_CLASS(QQuickItem)
 
 class WindowSingleThreaded : public QWindow
 {
     Q_OBJECT
+
+    QStringList m_loadMessages;
 
 public:
     WindowSingleThreaded();
@@ -77,6 +80,8 @@ public slots:
     quint32 width() { return QWindow::width(); }
     quint32 height() { return QWindow::height(); }
 
+    QStringList loadMessages() { return m_loadMessages; }
+    void addMessages(const QStringList &msgs) { m_loadMessages << msgs; }
     qreal calculateDelta(quint64 duration, qreal min, qreal max);
 
 signals:
@@ -86,11 +91,13 @@ signals:
 
 private slots:
     void run();
+    void addQmlPath();
 
     void createFbo();
     void destroyFbo();
     void requestUpdate();
     void handleScreenChange();
+    void handleWarnings(const QList<QQmlError> &warnings);
 
 private:
     void updateSizes();
