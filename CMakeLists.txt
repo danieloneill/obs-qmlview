@@ -43,10 +43,12 @@ endif()
 
 set(qmlview_SOURCES
     qmlview.cpp
+    renderer.cpp
 )
 
 set( qmlview_HEADERS
     qmlview.h
+    renderer.h
 )
 
 # qt5_wrap_headers( ${qmlview_HEADERS} );

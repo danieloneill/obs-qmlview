@@ -1,9 +1,18 @@
-import QtQuick 2.4
+import QtQuick 2.7
 import QtWebEngine 1.2
 
-Rectangle {
-	id: top
-	color: 'transparent'
+Item {
+	id: container
+	width: engine.width()
+	height: engine.height()
+
+	Connections {
+		target: engine
+		onResized: {
+			container.width = engine.width();
+			container.height = engine.height();
+		}
+	}
 
 	WebEngineView {
 		anchors.fill: parent

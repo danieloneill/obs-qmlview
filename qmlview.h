@@ -11,10 +11,12 @@
 #include <util/dstr.h>
 #include <graphics/graphics.h>
 
+class WindowSingleThreaded;
+
 class OBSQuickview : public QObject
 {
 Q_OBJECT
-    QQuickWidget      *m_quick;
+    WindowSingleThreaded    *m_quickView;
 
     QUrl    m_source;
 
@@ -24,14 +26,15 @@ Q_OBJECT
     bool    m_enabled;
     bool    m_updated;
     bool    m_ready;
+    bool    m_sceneChanged;
 
+    // Or... just... shared context stuff:
+    GLuint  m_texid;
     quint8  *m_bits;
 
 private:
-    QGraphicsView           *m_view;
-    QGraphicsScene          *m_scene;
-
-    QSharedPointer<QQuickItemGrabResult>    m_snapper;
+    void addPluginsPath();
+    void addQmlPath();
 
 public:
     OBSQuickview(QObject *parent=NULL);
@@ -42,7 +45,7 @@ public:
     bool    m_persistent;
 
     void obsshow();
-    void obshide() { m_enabled = false; m_view->setUpdatesEnabled(false); }
+    void obshide();
     void obsdraw();
     void renderFrame(gs_effect_t *effect);
 
@@ -52,19 +55,25 @@ public:
     void resize( quint32 w, quint32 h );
     void snap();
 
-    quint32 width() { return m_quick->width(); }
-    quint32 height() { return m_quick->height(); }
+public slots:
+    quint32 width() { return m_canvas.width(); }
+    quint32 height() { return m_canvas.height(); }
 
 signals:
     void wantLoad();
+    void wantUnload();
     void wantResize(quint32 w, quint32 h);
     void wantSnap();
+    void qmlWarnings(QStringList warnings);
 
 private slots:
     void doSnap();
     void doLoad();
+    void doUnload();
     void doResize(quint32 w, quint32 h);
-
+/*
     void qmlStatus(QQuickWidget::Status status);
-    void qmlFrame();
+    void qmlWarning(const QList<QQmlError> &warnings);
+*/
+    void qmlFrame(GLuint texid=0);
 };
