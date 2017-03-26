@@ -47,6 +47,7 @@
 #include <QMutex>
 #include <QImage>
 #include <QOpenGLTexture>
+#include <QUrl>
 
 QT_FORWARD_DECLARE_CLASS(QOpenGLContext)
 QT_FORWARD_DECLARE_CLASS(QOpenGLFramebufferObject)
@@ -62,6 +63,7 @@ class WindowSingleThreaded : public QWindow
 {
     Q_OBJECT
 
+    QUrl        m_url;
     QStringList m_loadMessages;
 
 public:
@@ -70,6 +72,8 @@ public:
 
     QQmlEngine *engine() { return m_qmlEngine; }
 
+    Q_PROPERTY(QVariant query READ getQuery)
+
 public slots:
     void startQuick(const QUrl &url);
     void resize(QSize newSize);
@@ -77,12 +81,11 @@ public slots:
     void unload();
     QImage getImage();
     bool initialised() { return m_quickInitialized; }
-    quint32 width() { return QWindow::width(); }
-    quint32 height() { return QWindow::height(); }
+    QVariant getQuery();
 
     QStringList loadMessages() { return m_loadMessages; }
     void addMessages(const QStringList &msgs) { m_loadMessages << msgs; }
-    qreal calculateDelta(quint64 duration, qreal min, qreal max);
+    //qreal calculateDelta(quint64 duration, qreal min, qreal max);
 
 signals:
     void updated(GLuint texid);

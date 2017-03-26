@@ -27,6 +27,7 @@ OBSQuickview::OBSQuickview(QObject *parent)
     m_ready = false;
     m_updated = false;
     m_enabled = false;
+    m_canvas = QImage();
 
     if( !m_weinit )
     {
@@ -148,8 +149,8 @@ void OBSQuickview::obsdraw()
     if( !m_updated )
         return; // Frame hasn't changed.
 
-    qint32 sw = obs_source_get_width(source);
-    qint32 sh = obs_source_get_height(source);
+    quint32 sw = obs_source_get_width(source);
+    quint32 sh = obs_source_get_height(source);
 
     if( m_canvas.isNull() )
     {
@@ -158,7 +159,7 @@ void OBSQuickview::obsdraw()
     }
 
     QImage img;
-    if( sw != m_canvas.width() || sh != m_canvas.height() )
+    if( sw != (quint32)m_canvas.width() || sh != (quint32)m_canvas.height() )
     {
         qDebug() << "Rescaling to " << sw << "x" << sh;
         m_mutex.lock();

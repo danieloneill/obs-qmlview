@@ -3,16 +3,8 @@ import QtWebEngine 1.2
 
 Item {
 	id: container
-	width: engine.width()
-	height: engine.height()
-
-	Connections {
-		target: engine
-		onResized: {
-			container.width = engine.width();
-			container.height = engine.height();
-		}
-	}
+	width: engine.width
+	height: engine.height
 
 	WebEngineView {
 		anchors.fill: parent

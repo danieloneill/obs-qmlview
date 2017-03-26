@@ -57,6 +57,7 @@
 #include <QCoreApplication>
 
 #include <QDir>
+#include <QUrlQuery>
 
 class RenderControl : public QQuickRenderControl
 {
@@ -76,7 +77,8 @@ QWindow *RenderControl::renderWindow(QPoint *offset)
 }
 
 WindowSingleThreaded::WindowSingleThreaded()
-    : m_qmlComponent(NULL),
+    : m_qmlEngine(NULL),
+      m_qmlComponent(NULL),
       m_rootItem(0),
       m_fbo(0),
       m_quickInitialized(false),
@@ -148,7 +150,8 @@ WindowSingleThreaded::~WindowSingleThreaded()
     if( m_rootItem )
         delete m_rootItem;
     delete m_quickWindow;
-    delete m_qmlEngine;
+    if( m_qmlEngine )
+        delete m_qmlEngine;
     delete m_fbo;
 
     m_context->doneCurrent();
@@ -217,7 +220,6 @@ void WindowSingleThreaded::render()
     }
 }
 
-static int counter{0};
 void WindowSingleThreaded::requestUpdate()
 {
     // Okay, want a redraw. Hide for now...
@@ -229,7 +231,7 @@ QImage WindowSingleThreaded::getImage()
 {
     return m_image;
 }
-
+/*
 #include <QDateTime>
 qreal WindowSingleThreaded::calculateDelta(quint64 duration, qreal min, qreal max)
 {
@@ -237,6 +239,21 @@ qreal WindowSingleThreaded::calculateDelta(quint64 duration, qreal min, qreal ma
         qreal diff = (now % duration);
         qreal result = (max - min) * (diff / duration);
         return result + min;
+}
+*/
+QVariant WindowSingleThreaded::getQuery()
+{
+    QVariantMap result;
+    if( !m_url.hasQuery() )
+        return false;
+
+    QUrlQuery q(m_url);
+    QPair<QString, QString> pair;
+    foreach( pair, q.queryItems() )
+    {
+        result[ pair.first ] = pair.second;
+    }
+    return result;
 }
 
 void WindowSingleThreaded::resize(QSize newSize)
@@ -346,6 +363,7 @@ void WindowSingleThreaded::unload()
 void WindowSingleThreaded::startQuick(const QUrl &url)
 {
     m_quickInitialized = false;
+    m_url = url;
     if( m_qmlComponent )
         unload();
 
