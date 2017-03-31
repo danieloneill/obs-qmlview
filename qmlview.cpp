@@ -144,6 +144,9 @@ void OBSQuickview::qmlFrame(GLuint texid)
 
 void OBSQuickview::obsdraw()
 {
+    if( !obs_source_active(source) )
+        return;
+
     snap();
 
     if( !m_updated )
@@ -189,58 +192,10 @@ void OBSQuickview::renderFrame(gs_effect_t *effect)
 {
     if( !texture ) return;
 
-    obs_enter_graphics();
     gs_effect_set_texture(gs_effect_get_param_by_name(effect, "image"), texture);
-    gs_draw_sprite(texture, 0, m_canvas.width(), m_canvas.height());
-    obs_leave_graphics();
-}
-/*
-void OBSQuickview::qmlStatus(QQuickWidget::Status status)
-{
-    QStringList out;
-    switch( status )
-    {
-        case QQuickView::Null:
-            qDebug() << "obs-quickview: Null";
-            m_ready = false;
-            break;
-        case QQuickView::Ready:
-            qDebug() << "obs-quickview: Ready";
-            m_ready = true;
-            break;
-        case QQuickView::Loading:
-            qDebug() << "obs-quickview: Loading";
-            m_ready = false;
-            break;
-        case QQuickView::Error:
-            qDebug() << "obs-quickview: Error";
-            m_ready = false;
-            out << "**ERRORS FOLLOW**";
-            foreach( QQmlError err, m_quick->errors() )
-            {
-                qDebug() << " * " << err.toString();
-                out << err.toString();
-            }
-            qmlWarnings(out);
-
-            break;
-        default:
-            qDebug() << "obs-quickview: UNKNOWN";
-            break;
-    }
+    gs_draw_sprite(texture, 0, gs_texture_get_width(texture), gs_texture_get_height(texture));
 }
 
-void OBSQuickview::qmlWarning(const QList<QQmlError> &warnings)
-{
-    QStringList out;
-    foreach( QQmlError w, warnings )
-    {
-        qWarning() << w.toString();
-        out << w.toString();
-    }
-    qmlWarnings(out);
-}
-*/
 static const char *quickview_source_get_name(void *unused)
 {
     UNUSED_PARAMETER(unused);
@@ -362,7 +317,7 @@ bool obs_module_load(void)
 {
     quickview_source_info.id             = "quickview_source";
     quickview_source_info.type           = OBS_SOURCE_TYPE_INPUT;
-    quickview_source_info.output_flags   = OBS_SOURCE_VIDEO | OBS_SOURCE_ASYNC;
+    quickview_source_info.output_flags   = OBS_SOURCE_VIDEO;
     quickview_source_info.get_name       = quickview_source_get_name;
     quickview_source_info.create         = quickview_source_create;
     quickview_source_info.destroy        = quickview_source_destroy;
