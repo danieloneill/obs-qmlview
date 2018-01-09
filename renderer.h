@@ -45,6 +45,7 @@
 #include <QMatrix4x4>
 #include <QTimer>
 #include <QMutex>
+#include <QThread>
 #include <QImage>
 #include <QOpenGLTexture>
 #include <QUrl>
@@ -58,6 +59,58 @@ QT_FORWARD_DECLARE_CLASS(QQmlEngine)
 QT_FORWARD_DECLARE_CLASS(QQmlError)
 QT_FORWARD_DECLARE_CLASS(QQmlComponent)
 QT_FORWARD_DECLARE_CLASS(QQuickItem)
+
+#include <QTimer>
+#include <QElapsedTimer>
+
+class FrameCounter : public QObject
+{
+    Q_OBJECT
+
+    QString         m_myname;
+    quint32         m_count;
+    QElapsedTimer   m_timer;
+    QTimer          m_printer;
+
+public:
+    FrameCounter(const QString &name) : QObject(), m_myname(name), m_count(0)
+    {
+        m_printer.setInterval(30000);
+        m_printer.setSingleShot(false);
+        connect( &m_printer, SIGNAL(timeout()), this, SLOT(printFPS()) );
+        m_printer.start();
+        m_timer.start();
+    }
+
+public slots:
+    void inc() { m_count++; }
+    void printFPS() {
+        double fps = (double) m_count / ( (double)m_timer.elapsed() / 1000.0 );
+        qDebug() << m_myname << ": FPS = " << fps;
+        m_count = 0;
+        m_timer.restart();
+    }
+};
+
+class WindowSingleThreaded;
+class Snapper : public QThread
+{
+    Q_OBJECT
+
+    WindowSingleThreaded *m_parent;
+
+    bool                    m_snapping;
+
+public:
+    Snapper(WindowSingleThreaded *parent);
+    ~Snapper();
+
+public slots:
+    void snapRequested();
+
+signals:
+    void resultReady();
+};
 
 class WindowSingleThreaded : public QWindow
 {
@@ -73,24 +126,45 @@ public:
     QQmlEngine *engine() { return m_qmlEngine; }
 
     Q_PROPERTY(QVariant query READ getQuery)
+    Snapper *m_snapper;
 
 public slots:
     void startQuick(const QUrl &url);
     void resize(QSize newSize);
+    void manualUpdated(bool onoff);
     void render();
+    void triggerSnap();
     void unload();
-    QImage getImage();
+#ifdef GLCOPY
+    GLuint lockFbo();
+    void unlockFbo();
+#endif
+    QImage *getImage();
+    void lock();
+    void unlock();
+
     bool initialised() { return m_quickInitialized; }
     QVariant getQuery();
+    void requestUpdate();
 
     QStringList loadMessages() { return m_loadMessages; }
     void addMessages(const QStringList &msgs) { m_loadMessages << msgs; }
     //qreal calculateDelta(quint64 duration, qreal min, qreal max);
 
+    void sendMouseClick(quint32 x, quint32 y, qint32 type, bool onoff, quint8 click_count);
+    void sendMouseMove(quint32 x, quint32 y, bool leaving);
+    void sendMouseWheel(qint32 xdelta, qint32 ydelta);
+    void sendKey(quint32 keycode, quint32 vkey, quint32 modifiers, const char *text, bool updown);
+    void sendFocus(bool onoff);
+
+    void wantFrame();
+
 signals:
-    void updated(GLuint texid);
+    //void updated(GLuint texid);
+    void capped();
     void resized();
     void messages(const QStringList &messages);
+    void snapWanted();
 
 private slots:
     void run();
@@ -98,9 +172,9 @@ private slots:
 
     void createFbo();
     void destroyFbo();
-    void requestUpdate();
     void handleScreenChange();
     void handleWarnings(const QList<QQmlError> &warnings);
+    void handleFocusChanged(QObject *obj);
 
 private:
     void updateSizes();
@@ -108,7 +182,9 @@ private:
 
     QMutex m_mutex;
     QImage m_image;
-    bool m_frameReady;
+    bool m_frameChanged;
+    bool m_forceRender;
+    bool m_fboLocked;
     QOpenGLContext *m_context;
     QOffscreenSurface *m_offscreenSurface;
     QQuickRenderControl *m_renderControl;
@@ -117,6 +193,7 @@ private:
     QQmlComponent *m_qmlComponent;
     QQuickItem *m_rootItem;
     QOpenGLFramebufferObject *m_fbo;
+    QObject *m_currentFocus;
     bool m_quickInitialized;
     bool m_quickReady;
     QTimer m_updateTimer;

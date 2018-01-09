@@ -1,3 +1,5 @@
+project(obs-qmlview)
+
 set(CMAKE_INCLUDE_CURRENT_DIR TRUE)
 set(CMAKE_AUTOMOC TRUE)
 
@@ -50,8 +52,6 @@ set( qmlview_HEADERS
     qmlview.h
     renderer.h
 )
-
-# qt5_wrap_headers( ${qmlview_HEADERS} );
 
 add_library(obs-qmlview MODULE
         ${qmlview_SOURCES}

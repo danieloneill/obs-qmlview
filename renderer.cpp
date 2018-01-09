@@ -77,7 +77,8 @@ QWindow *RenderControl::renderWindow(QPoint *offset)
 }
 
 WindowSingleThreaded::WindowSingleThreaded()
-    : m_qmlEngine(NULL),
+    : m_frameChanged(false),
+      m_qmlEngine(NULL),
       m_qmlComponent(NULL),
       m_rootItem(0),
       m_fbo(0),
@@ -115,14 +116,22 @@ WindowSingleThreaded::WindowSingleThreaded()
     m_quickWindow->setDefaultAlphaBuffer(true);
     m_quickWindow->setFormat(format);
     m_quickWindow->setColor(Qt::transparent);
+    connect( m_quickWindow, SIGNAL(focusObjectChanged(QObject*)), this, SLOT(handleFocusChanged(QObject*)) );
 
     // Now hook up the signals. For simplicy we don't differentiate between
     // renderRequested (only render is needed, no sync) and sceneChanged (polish and sync
     // is needed too).
     connect(m_quickWindow, &QQuickWindow::sceneGraphInitialized, this, &WindowSingleThreaded::createFbo);
     connect(m_quickWindow, &QQuickWindow::sceneGraphInvalidated, this, &WindowSingleThreaded::destroyFbo);
-    connect(m_renderControl, &QQuickRenderControl::renderRequested, this, &WindowSingleThreaded::requestUpdate);
-    connect(m_renderControl, &QQuickRenderControl::sceneChanged, this, &WindowSingleThreaded::requestUpdate);
+
+    m_snapper = new Snapper(this);
+    m_snapper->start();
+
+    connect(this, &WindowSingleThreaded::snapWanted, m_snapper, &Snapper::snapRequested, Qt::QueuedConnection);
+    connect(m_snapper, SIGNAL(resultReady()), this, SIGNAL(capped()), Qt::QueuedConnection );
+
+    connect(m_renderControl, &QQuickRenderControl::renderRequested, this, &WindowSingleThreaded::triggerSnap);
+    connect(m_renderControl, &QQuickRenderControl::sceneChanged, this, &WindowSingleThreaded::triggerSnap);
 
     // Just recreating the FBO on resize is not sufficient, when moving between screens
     // with different devicePixelRatio the QWindow size may remain the same but the FBO
@@ -178,22 +187,37 @@ void WindowSingleThreaded::destroyFbo()
 void WindowSingleThreaded::render()
 {
     if( !m_renderControl || !m_quickWindow )
-        return;
+    {
+        if( !m_renderControl )
+            qDebug() << "!m_renderControl";
 
-    if( !m_frameReady )
-        return;
+        if( !m_quickWindow )
+            qDebug() << "!m_quickWindow";
 
+
+        return;
+    }
+
+#ifdef GLCOPY
+    if( m_fboLocked )
+        return;
+#endif
     // Okay, redrawing, so... show it:
     if (!m_context->makeCurrent(m_offscreenSurface))
+    {
+        qDebug() << "Failed to make frame current!";
         return;
+    }
+
+    //qDebug() << "RENDER.";
 
     // Polish, synchronize and render the next frame (into our fbo).  In this example
     // everything happens on the same thread and therefore all three steps are performed
     // in succession from here. In a threaded setup the render() call would happen on a
     // separate thread.
     m_renderControl->polishItems();
-    m_renderControl->sync();
-    m_renderControl->render();
+    if( m_renderControl->sync() )
+        m_renderControl->render();
 
     m_quickWindow->resetOpenGLState();
     QOpenGLFramebufferObject::bindDefault();
@@ -205,31 +229,65 @@ void WindowSingleThreaded::render()
     // Get something onto the screen.
     if( m_fbo->bind() )
     {
-/* TODO: Get this ... GL texture thing working, it's faster than copying fuckin' pixels:
-        GLuint texid = m_fbo->texture();
-        m_fbo->release();
-        m_frameReady = false;
-        emit updated(texid);
-*/
+#ifndef GLCOPY
         m_mutex.lock();
-        m_image = m_fbo->toImage(true);
+        //m_image = m_renderControl->grab().convertToFormat(QImage::Format_RGBA8888);
+        m_image = m_fbo->toImage(true).convertToFormat(QImage::Format_RGBA8888);
         m_mutex.unlock();
         m_fbo->release();
-        m_frameReady = false;
-        emit updated(0);
+        //qDebug() << "Image updated, m_frameReady now TRUE";
+        emit capped();
+#else
+        // TODO: Get this ... GL texture thing working, it's faster than copying fuckin' pixels:
+        GLuint texid = m_fbo->texture();
+        m_fbo->release();
+        m_frameReady = true;
+        emit updated(texid);
+#endif
     }
+    else
+        qDebug() << "Failed to bind FBO!";
 }
 
-void WindowSingleThreaded::requestUpdate()
+#ifdef GLCOPY
+GLuint WindowSingleThreaded::lockFbo()
 {
-    // Okay, want a redraw. Hide for now...
-    //qDebug() << "requestUpdate..." << (counter++);
-    m_frameReady = true;
+    return m_fbo->takeTexture();
+
+    if( m_fboLocked )
+        return 0;
+
+    GLuint texid = 0;
+    if( m_fbo->bind() )
+    {
+        texid = m_fbo->texture();
+        m_fboLocked = true;
+    }
+    return texid;
 }
 
-QImage WindowSingleThreaded::getImage()
+void WindowSingleThreaded::unlockFbo()
 {
-    return m_image;
+    if( m_fboLocked )
+        m_fbo->release();
+    m_fboLocked = false;
+}
+#endif
+
+void WindowSingleThreaded::lock() { m_mutex.lock(); }
+void WindowSingleThreaded::unlock() { m_mutex.unlock(); }
+
+QImage *WindowSingleThreaded::getImage()
+{
+#ifdef MUTEXLOCKS
+    QImage copy;
+    m_mutex.lock();
+    copy = m_image.copy();
+    m_mutex.unlock();
+    return copy;
+#else
+    return &m_image;
+#endif
 }
 /*
 #include <QDateTime>
@@ -258,7 +316,7 @@ QVariant WindowSingleThreaded::getQuery()
 
 void WindowSingleThreaded::resize(QSize newSize)
 {
-    //qDebug() << "Resizing: " << newSize;
+    qDebug() << "Resizing: " << newSize;
     QWindow::resize(newSize);
 
     // If this is a resize after the scene is up and running, recreate the fbo and the
@@ -267,6 +325,27 @@ void WindowSingleThreaded::resize(QSize newSize)
         resizeFbo();
 
     emit resized();
+}
+
+void WindowSingleThreaded::manualUpdated(bool onoff)
+{
+    // TODO: For now, always leave the signals connected.
+    m_forceRender = onoff;
+    return;
+/*
+    if( onoff )
+    {
+        disconnect(m_renderControl, &QQuickRenderControl::renderRequested, this, &WindowSingleThreaded::triggerSnap);
+        disconnect(m_renderControl, &QQuickRenderControl::sceneChanged, this, &WindowSingleThreaded::triggerSnap);
+        qDebug() << "Disconnecting update signals.";
+    }
+    else
+    {
+        connect(m_renderControl, &QQuickRenderControl::renderRequested, this, &WindowSingleThreaded::triggerSnap, Qt::QueuedConnection);
+        connect(m_renderControl, &QQuickRenderControl::sceneChanged, this, &WindowSingleThreaded::triggerSnap, Qt::QueuedConnection);
+        qDebug() << "Connecting update signals.";
+    }
+*/
 }
 
 void WindowSingleThreaded::run()
@@ -408,3 +487,129 @@ void WindowSingleThreaded::handleWarnings(const QList<QQmlError> &warnings)
         msgs << warn.toString();
     emit messages(msgs);
 }
+
+void WindowSingleThreaded::handleFocusChanged(QObject *obj)
+{
+    qDebug() << "Focus changed!!! --------------- ";
+    m_currentFocus = obj;
+}
+
+#include <QMouseEvent>
+#include <QWheelEvent>
+void WindowSingleThreaded::sendMouseClick(quint32 x, quint32 y, qint32 type, bool onoff, quint8 click_count)
+{
+    Qt::MouseButton btn = Qt::NoButton;
+    if( type == 0 )
+        btn = Qt::LeftButton;
+    if( type == 1 )
+        btn = Qt::MiddleButton;
+    if( type == 2 )
+        btn = Qt::RightButton;
+
+    QMouseEvent *event = new QMouseEvent( (onoff) ? QEvent::MouseButtonRelease : QEvent::MouseButtonPress, QPointF(x, y), btn, Qt::NoButton, Qt::NoModifier );
+    QCoreApplication::postEvent (m_quickWindow, event);
+}
+
+void WindowSingleThreaded::sendMouseMove(quint32 x, quint32 y, bool leaving)
+{
+    QMouseEvent *event = new QMouseEvent( QEvent::MouseMove, QPointF(x, y), Qt::NoButton, Qt::NoButton, Qt::NoModifier );
+    QCoreApplication::postEvent (m_quickWindow, event);
+}
+
+void WindowSingleThreaded::sendMouseWheel(qint32 xdelta, qint32 ydelta)
+{
+    QWheelEvent *event = new QWheelEvent( QPointF(), QPointF(), QPoint(), QPoint(xdelta, ydelta), 0, xdelta != 0 ? Qt::Vertical : Qt::Horizontal, Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase);
+    QCoreApplication::postEvent (m_quickWindow, event);
+}
+
+void WindowSingleThreaded::sendKey(quint32 keycode, quint32 vkey, quint32 modifiers, const char *text, bool updown)
+{
+    int newCode = keycode;
+    if( keycode == 36 )
+        newCode = Qt::Key_Enter;
+    else if( keycode == 111 )
+        newCode = Qt::Key_Up;
+    else if( keycode == 116 )
+        newCode = Qt::Key_Down;
+    else if( keycode == 113 )
+        newCode = Qt::Key_Left;
+    else if( keycode == 114 )
+        newCode = Qt::Key_Right;
+    else if( keycode == 110 )
+        newCode = Qt::Key_Home;
+    else if( keycode == 112 )
+        newCode = Qt::Key_PageUp;
+    else if( keycode == 117 )
+        newCode = Qt::Key_PageDown;
+    else if( keycode == 115 )
+        newCode = Qt::Key_End;
+    else if( text[0] >= ' ' && text[0] <= '~' )
+    {
+        qDebug() << "Key " << ( updown ? QString("Up") : QString("Down") ) << ": " << QString::fromLocal8Bit(text);
+        QKeySequence seq( text );
+        newCode = seq[0];
+    }
+    else
+    {
+        qDebug() << "Got keycode: " << keycode << " / Mapped is " << QChar(keycode) << " (Down:" << (!updown) << ")"; //.unicode();
+    }
+
+    //QKeyEvent *event = new QKeyEvent( (!updown) ? QEvent::KeyPress : QEvent::KeyRelease, keycode, Qt::NoModifier, QString::fromLocal8Bit(text) );
+    QKeyEvent *event = new QKeyEvent( (!updown) ? QEvent::KeyPress : QEvent::KeyRelease, newCode, Qt::NoModifier, keycode, vkey, modifiers, QString::fromLocal8Bit(text) );
+    QCoreApplication::postEvent (m_rootItem, event);
+}
+
+void WindowSingleThreaded::sendFocus(bool onoff)
+{
+    qDebug() << "Focus: " << onoff;
+    QFocusEvent *event = new QFocusEvent( onoff ? QFocusEvent::FocusIn : QFocusEvent::FocusOut );
+    QCoreApplication::postEvent (m_quickWindow, event);
+}
+
+// Triggered by the render control (QML engine wants a redraw):
+void WindowSingleThreaded::triggerSnap()
+{
+    //qDebug() << " ++ Frame changed!";
+    m_frameChanged = true;
+    /*
+    if( m_wantFrame )
+    {
+        m_wantFrame = false;
+        emit snapWanted();
+    }
+    */
+}
+
+void WindowSingleThreaded::wantFrame()
+{
+    if( !m_frameChanged )
+        return;
+    m_frameChanged = false;
+    emit snapWanted();
+}
+
+Snapper::Snapper(WindowSingleThreaded *parent)
+{
+    m_parent = parent;
+    m_snapping = false;
+}
+
+Snapper::~Snapper()
+{
+
+}
+
+void Snapper::snapRequested()
+{
+    if( m_snapping )
+    {
+        qDebug() << "m_snapping";
+        return;
+    }
+
+    m_snapping = true;
+    m_parent->render();
+    emit resultReady();
+    m_snapping = false;
+}
+
