@@ -2,6 +2,9 @@
 
 [![Join the chat at https://gitter.im/obs-qmlview/Lobby](https://badges.gitter.im/obs-qmlview/Lobby.svg)](https://gitter.im/obs-qmlview/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
+# No longer compatible with OBS Studio
+Unfortunately some recent changes in the OBS Studio code have meant that this plugin no longer compatible. The plugin itself always was quick and rough, so a new version has been long overdue anyway. Until that time comes this version will remain, but won't run. (You'll get EGL errors rather than a working plugin if you're lucky, or a crash if you aren't.)
+
 
 ## To build/install:
 
